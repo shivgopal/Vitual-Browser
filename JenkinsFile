@@ -1,0 +1,66 @@
+pipeline {
+    agent any
+    
+    environment {
+        SCANNER_HOME=tool 'sonar-scanner'
+    }
+
+    stages {
+        stage('Git-Checkout') {
+            steps {
+                git branch: 'main', url: 'https://github.com/shivgopal/Vitual-Browser.git'
+            }
+        }
+        
+        stage('Owasp Dependency Check') {
+            steps {
+                dependencyCheck additionalArguments: ' --scan ./', odcInstallation: 'DC'
+                dependencyCheckPublisher pattern: '**/dependency-check-report.xml'
+            }
+        }
+        
+        stage('Sonarqube') {
+            steps {
+                withSonarQubeEnv('sonar') {
+                    sh '''$SCANNER_HOME/bin/sonar-scanner -Dsonar.projectKey=VirtualBrowser \
+                    -Dsonar.projectName=VirtualBrowser'''
+                    
+                }
+            }
+        }
+        stage('Docker Build & Tag') {
+            steps {
+                script {
+                    
+                    withDockerRegistry(credentialsId: 'docker-cred', toolName: 'Docker') {
+                        dir('/home/ubuntu/.jenkins/workspace/Virtual-Browser/.docker/firefox') {
+                            sh "docker build -t shivbhole/vb:latest ."
+                            }
+                        }
+                }
+            }
+        }
+        stage('Trivy Docker Scan') {
+            steps {
+                sh "trivy image shivbhole/vb:latest "
+            }
+        }
+        stage('Docker Push Image') {
+            steps {
+                script {
+                    
+                    withDockerRegistry(credentialsId: 'docker-cred', toolName: 'Docker') {
+                        sh "docker push shivbhole/vb:latest"
+                    }
+                }
+            }
+        }
+        
+        stage('Deploy') {
+            steps {
+                sh "docker-compose up -d"
+            }
+        }
+    }
+    
+}
